@@ -4,6 +4,11 @@ import time
 import pandas as pd
 import math
 import threading
+from multiprocessing import Pool
+
+
+# 出力先のCSVファイル名
+csvFileName = '希望の仕事.csv'
 
 
 ### Chromeを起動する関数
@@ -23,7 +28,13 @@ def set_driver(driver_path,headless_flg):
     options.add_argument('--incognito')          # シークレットモードの設定を付与
 
     # ChromeのWebDriverオブジェクトを作成する。
-    return Chrome(executable_path=os.getcwd() + "\\" + driver_path,options=options)   
+    return Chrome(executable_path=os.getcwd() + '\\' + driver_path,options=options)   
+
+
+### ファイルを削除する
+def deleteFile(filePath):
+    if os.path.exists(filePath):
+        os.remove(filePath)
 
 
 ### 検索ヒット件数からページ数を求める
@@ -33,12 +44,15 @@ def getAllPageCount(resultNum):
 
 
 ### 1ページ分読み込む
-def readPage(driver,keyWord,pageNo):
-
-    print(f"https://tenshoku.mynavi.jp/list/kw{keyWord}/pg{pageNo}/")
-    driver.get(f"https://tenshoku.mynavi.jp/list/kw{keyWord}/pg{pageNo}/")
-    elem_cassetteRecruit__contents = driver.find_elements_by_class_name("cassetteRecruit__content")
-
+def readPage(keyWord,pageNo):
+    # driverを起動
+    driver=set_driver('chromedriver.exe',False)
+    # Webサイトを開く
+    driver.get(f'https://tenshoku.mynavi.jp/list/kw{keyWord}/pg{pageNo}/')
+    time.sleep(5)
+    # ポップアップを閉じる
+    driver.execute_script('document.querySelector(\'.karte-close\').click()')
+    
     names = []
     copys = []
     statuss = []
@@ -48,19 +62,20 @@ def readPage(driver,keyWord,pageNo):
     body3s = []
     body4s = []
 
+    elem_cassetteRecruit__contents = driver.find_elements_by_class_name('cassetteRecruit__content')
     for elem_cassetteRecruit__content in elem_cassetteRecruit__contents:
 
         # 会社名を取得する
-        name = elem_cassetteRecruit__content.find_element_by_class_name("cassetteRecruit__name").text
+        name = elem_cassetteRecruit__content.find_element_by_class_name('cassetteRecruit__name').text
 
         # コピーを取得する
-        copy = elem_cassetteRecruit__content.find_element_by_class_name("cassetteRecruit__copy").text
+        copy = elem_cassetteRecruit__content.find_element_by_class_name('cassetteRecruit__copy').text
 
         # 雇用形態を取得する
-        status = elem_cassetteRecruit__content.find_element_by_class_name("labelEmploymentStatus").text
+        status = elem_cassetteRecruit__content.find_element_by_class_name('labelEmploymentStatus').text
 
         # 仕事内容 ～ 初年度年収を取得する
-        elem_tableCondition__bodys = elem_cassetteRecruit__content.find_element_by_class_name("tableCondition").find_elements_by_class_name("tableCondition__body")
+        elem_tableCondition__bodys = elem_cassetteRecruit__content.find_element_by_class_name('tableCondition').find_elements_by_class_name('tableCondition__body')
 
         body0 = elem_tableCondition__bodys[0].text
         body1 = elem_tableCondition__bodys[1].text
@@ -71,7 +86,7 @@ def readPage(driver,keyWord,pageNo):
             body4 = elem_tableCondition__bodys[4].text
         else:
         # 初年度年収が載っていない案件
-            body4 = ""
+            body4 = ''
 
         names.append(name)
         copys.append(copy)
@@ -83,42 +98,43 @@ def readPage(driver,keyWord,pageNo):
         body4s.append(body4)
     
     df = pd.DataFrame()
-    df["会社名"] = names
-    df["コピー"] = copys
-    df["雇用形態"] = statuss
-    df["仕事内容"] = body0s
-    df["対象となる方"] = body1s
-    df["勤務地"] = body2s
-    df["給与"] = body3s
-    df["初年度年収"] = body4s
+    df['会社名'] = names
+    df['コピー'] = copys
+    df['雇用形態'] = statuss
+    df['仕事内容'] = body0s
+    df['対象となる方'] = body1s
+    df['勤務地'] = body2s
+    df['給与'] = body3s
+    df['初年度年収'] = body4s
 
-    df.to_csv("希望の仕事.csv", index=False,mode="a")
+    # 検索結果をcsvファイルに書き込む
+    df.to_csv(csvFileName,index=False,header=None,mode='a')
 
 
 ### main処理
 def main(search_keyword):
 
-    # ファイルを削除する
-    os.remove("希望の仕事.csv")
+    # 前に出力したcsvファイルを削除する
+    deleteFile(csvFileName)
 
     # driverを起動
-    driver=set_driver("chromedriver.exe",False)
+    driver=set_driver('chromedriver.exe',False)
     # Webサイトを開く
-    driver.get("https://tenshoku.mynavi.jp/")
+    driver.get('https://tenshoku.mynavi.jp/')
     time.sleep(5)
     # ポップアップを閉じる
-    driver.execute_script('document.querySelector(".karte-close").click()')
+    driver.execute_script('document.querySelector(\'.karte-close\').click()')
     # ポップアップを閉じる
-    #driver.execute_script('document.querySelector(".karte-close").click()')
+    #driver.execute_script('document.querySelector('.karte-close').click()')
     # 検索窓に入力
-    driver.find_element_by_class_name("topSearch__text").send_keys(search_keyword)
+    driver.find_element_by_class_name('topSearch__text').send_keys(search_keyword)
     # 検索ボタンクリック
-    driver.find_element_by_class_name("topSearch__button").click()
+    driver.find_element_by_class_name('topSearch__button').click()
         
     #検索結果の件数を取得する
-    time.sleep(20)  #読込みを待つために20秒間処理を止める
-    _resultNum = driver.find_element_by_class_name("result__num").text    
-    _resultNum = _resultNum.replace("件","")
+    time.sleep(20)
+    _resultNum = driver.find_element_by_class_name('result__num').text    
+    _resultNum = _resultNum.replace('件','')
     resultNum = int(_resultNum)
 
     if resultNum > 0:
@@ -126,18 +142,30 @@ def main(search_keyword):
         # ヒット件数から総ページ数を求める
         allPageCount = getAllPageCount(resultNum)
 
+        ts = []
         for i in range(allPageCount):
             pageNo = i + 1
-            # 1ページ分読み込む
-            t = threading.Thread(target=readPage,args=(driver,search_keyword,pageNo))
-            t.start()        
+             # 1ページ分読み込む
+            ts.append(threading.Thread(target=readPage,args=(search_keyword,pageNo)))
+
+        # 処理速度の計測開始
+        startTime = time.perf_counter()
+
+        for t in ts:
+            t.setDaemon(True)
+            t.start()
+            t.join()
+
+        # 処理速度の計測終了
+        totalTime = math.floor(time.perf_counter() - startTime)
+        print(f'処理速度：{totalTime}秒')
     else:
     #入力したキーワードで検索がヒットしなかった場合
-        print("希望の仕事は見つかりませんでした")
+        print('希望の仕事は見つかりませんでした')
 
 
 ### 直接起動された場合はmain()を起動(モジュールとして呼び出された場合は起動しないようにするため)
-if __name__ == "__main__":    
+if __name__ == '__main__':
 
-    search_keyword =input("希望するキーワードを入力してください >>> ")
+    search_keyword =input('希望するキーワードを入力してください >>> ')
     main(search_keyword)
