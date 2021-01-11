@@ -3,11 +3,10 @@ from selenium.webdriver import Chrome, ChromeOptions
 import time
 import pandas as pd
 import math
-import threading
-from multiprocessing import Pool
+import concurrent.futures
 
 
-# 出力先のCSVファイル名
+### 出力先のCSVファイル名
 csvFileName = '希望の仕事.csv'
 
 
@@ -35,6 +34,30 @@ def set_driver(driver_path,headless_flg):
 def deleteFile(filePath):
     if os.path.exists(filePath):
         os.remove(filePath)
+
+
+### 検索ヒット件数を取得する
+def getHitCount(search_keyword):
+    # driverを起動
+    driver=set_driver('chromedriver.exe',False)
+    # Webサイトを開く
+    driver.get('https://tenshoku.mynavi.jp/')
+    time.sleep(5)
+    # ポップアップを閉じる
+    driver.execute_script('document.querySelector(\'.karte-close\').click()')
+    # ポップアップを閉じる
+    #driver.execute_script('document.querySelector('.karte-close').click()')
+    # 検索窓に入力
+    driver.find_element_by_class_name('topSearch__text').send_keys(search_keyword)
+    # 検索ボタンクリック
+    driver.find_element_by_class_name('topSearch__button').click()
+        
+    #検索結果の件数を取得する
+    time.sleep(20)
+    _resultNum = driver.find_element_by_class_name('result__num').text    
+    _resultNum = _resultNum.replace('件','')
+    
+    return int(_resultNum)
 
 
 ### 検索ヒット件数からページ数を求める
@@ -110,55 +133,35 @@ def readPage(keyWord,pageNo):
     # 検索結果をcsvファイルに書き込む
     df.to_csv(csvFileName,index=False,header=None,mode='a')
 
+    #return pageNo
+
 
 ### main処理
-def main(search_keyword):
+def main(search_keyword,trhreadCount=5):
 
     # 前に出力したcsvファイルを削除する
     deleteFile(csvFileName)
 
-    # driverを起動
-    driver=set_driver('chromedriver.exe',False)
-    # Webサイトを開く
-    driver.get('https://tenshoku.mynavi.jp/')
-    time.sleep(5)
-    # ポップアップを閉じる
-    driver.execute_script('document.querySelector(\'.karte-close\').click()')
-    # ポップアップを閉じる
-    #driver.execute_script('document.querySelector('.karte-close').click()')
-    # 検索窓に入力
-    driver.find_element_by_class_name('topSearch__text').send_keys(search_keyword)
-    # 検索ボタンクリック
-    driver.find_element_by_class_name('topSearch__button').click()
-        
-    #検索結果の件数を取得する
-    time.sleep(20)
-    _resultNum = driver.find_element_by_class_name('result__num').text    
-    _resultNum = _resultNum.replace('件','')
-    resultNum = int(_resultNum)
+    # 検索ヒット件数を取得する
+    hitCount = getHitCount(search_keyword)
 
-    if resultNum > 0:
+    if hitCount > 0:
     # 入力したキーワードで検索がヒットした場合
-        # ヒット件数から総ページ数を求める
-        allPageCount = getAllPageCount(resultNum)
-
-        ts = []
-        for i in range(allPageCount):
-            pageNo = i + 1
-             # 1ページ分読み込む
-            ts.append(threading.Thread(target=readPage,args=(search_keyword,pageNo)))
 
         # 処理速度の計測開始
         startTime = time.perf_counter()
 
-        for t in ts:
-            t.setDaemon(True)
-            t.start()
-            t.join()
+        trhreadCount = int(trhreadCount)
+        with concurrent.futures.ThreadPoolExecutor(trhreadCount) as executor:
+            allPageCount = getAllPageCount(hitCount)
+            rets = [executor.submit(readPage,search_keyword,i + 1) for i in range(allPageCount)]
+
+        for ret in concurrent.futures.as_completed(rets):
+            pass
 
         # 処理速度の計測終了
         totalTime = math.floor(time.perf_counter() - startTime)
-        print(f'処理速度：{totalTime}秒')
+        print(f'処理速度：{totalTime} 秒')
     else:
     #入力したキーワードで検索がヒットしなかった場合
         print('希望の仕事は見つかりませんでした')
@@ -167,5 +170,7 @@ def main(search_keyword):
 ### 直接起動された場合はmain()を起動(モジュールとして呼び出された場合は起動しないようにするため)
 if __name__ == '__main__':
 
-    search_keyword =input('希望するキーワードを入力してください >>> ')
-    main(search_keyword)
+    search_keyword = input('希望するキーワードを入力してください >>> ')    
+    rhreadCount = input('何ページまで同時に取得しますか？ >>> ')
+
+    main(search_keyword,rhreadCount)
